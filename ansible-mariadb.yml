@@ -1,0 +1,89 @@
+---
+- name: Automação Completa do MariaDB no RHEL
+  hosts: dbservers
+  become: yes
+
+  vars:
+    db_root_password: "SenhaSeguraDoRoot123"
+    app_db_name: "lab_db"
+    app_db_user: "lab_user"
+    app_db_password: "SenhaDificil123"
+
+  tasks:
+
+    - name: Instalar pacotes do MariaDB e dependências Python
+      dnf:
+        name:
+          - mariadb-server
+          - python3-PyMySQL
+          - firewalld
+        state: latest
+        update_cache: yes
+
+    - name: Garantir que o MariaDB está rodando e habilitado
+      service:
+        name: mariadb
+        state: started
+        enabled: yes
+
+    - name: Aguardar o socket do MariaDB estar pronto
+      wait_for:
+        path: /var/lib/mysql/mysql.sock
+        state: present
+        timeout: 30
+
+    - name: Configurar a senha de root do MariaDB
+      mysql_user:
+        name: root
+        password: "{{ db_root_password }}"
+        login_user: root
+        login_password: ""
+        login_unix_socket: /var/lib/mysql/mysql.sock
+        check_implicit_admin: yes
+        state: present
+
+    - name: Remover usuários anônimos
+      mysql_user:
+        name: ''
+        host_all: yes
+        state: absent
+        login_user: root
+        login_password: "{{ db_root_password }}"
+
+    - name: Remover banco de dados de teste
+      mysql_db:
+        name: test
+        state: absent
+        login_user: root
+        login_password: "{{ db_root_password }}"
+
+    - name: Garantir que o serviço firewalld está ativo
+      service:
+        name: firewalld
+        state: started
+        enabled: yes
+
+    - name: Configurar Firewall (Abrir porta 3306)
+      firewalld:
+        service: mysql
+        permanent: yes
+        state: enabled
+        immediate: yes
+
+    - name: Criar Banco de Dados da Aplicação
+      mysql_db:
+        name: "{{ app_db_name }}"
+        state: present
+        login_user: root
+        login_password: "{{ db_root_password }}"
+        login_unix_socket: /var/lib/mysql/mysql.sock
+
+    - name: Criar Usuário da Aplicação com permissões
+      mysql_user:
+        name: "{{ app_db_user }}"
+        password: "{{ app_db_password }}"
+        priv: "{{ app_db_name }}.*:ALL"
+        state: present
+        login_user: root
+        login_password: "{{ db_root_password }}"
+        login_unix_socket: /var/lib/mysql/mysql.sock
